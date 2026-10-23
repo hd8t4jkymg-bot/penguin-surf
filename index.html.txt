@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+</head>
+<body style="margin:0;">
+<script>
+  let penguin, water, crests = [], score = 0, scoreText;
+
+  const config = {
+    type: Phaser.AUTO,
+    width: 400,
+    height: 600,
+    backgroundColor: '#8fd3f4',
+    physics: { default: 'arcade', arcade: { gravity: { y: 900 } } },
+    scene: { create: create, update: update }
+  };
+
+  function create() {
+    // The water: a solid block the penguin can land on
+    water = this.add.rectangle(200, 520, 400, 160, 0x1e6fb8);
+    this.physics.add.existing(water, true);
+
+    // The penguin: a simple dark block for now
+    penguin = this.add.rectangle(100, 400, 30, 40, 0x222222);
+    this.physics.add.existing(penguin);
+    penguin.body.setCollideWorldBounds(true);
+    this.physics.add.collider(penguin, water);
+
+    // White crests that move left to show forward motion
+    for (let i = 0; i < 8; i++) {
+      crests.push(this.add.rectangle(i * 60, 445, 30, 6, 0xffffff));
+    }
+
+    scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '24px', color: '#ffffff' });
+
+    // Tap anywhere to jump, only when standing on the water
+    this.input.on('pointerdown', () => {
+      if (penguin.body.touching.down) {
+        penguin.body.setVelocityY(-450);
+      }
+    });
+  }
+
+  function update(time, delta) {
+    // Move crests left and wrap them around
+    crests.forEach(c => {
+      c.x -= 0.2 * delta;
+      if (c.x < -30) c.x = 430;
+    });
+
+    // Score goes up while the penguin is on the water
+    if (penguin.body.touching.down) {
+      score += delta / 100;
+      scoreText.setText('Score: ' + Math.floor(score));
+    }
+  }
+
+  new Phaser.Game(config);
+</script>
+</body>
+</html>
