@@ -6,80 +6,203 @@
 </head>
 <body style="margin:0;">
 <script>
-  let penguin, water, wave, crests = [], score = 0, scoreText;
-  let waveX = -120, over = false;
+  const W = 400, H = 600, PX = 200; // PX = penguin's fixed screen x
+  let S = {}, scoreText, clouds = [], waveG, waterG, penguinG;
+
+  // Shape of the sea: a gentle rolling surface
+  function surfaceAt(wx) {
+    return 440 + Math.sin(wx * 0.015) * 14 + Math.sin(wx * 0.04 + 1) * 5;
+  }
+
+  function lerpColor(a, b, t) {
+    const r = ((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t;
+    const g = ((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t;
+    const bl = (a & 255) * (1 - t) + (b & 255) * t;
+    return ((r | 0) << 16) | ((g | 0) << 8) | (bl | 0);
+  }
 
   const config = {
     type: Phaser.AUTO,
-    width: 400,
-    height: 600,
+    width: W,
+    height: H,
     backgroundColor: '#8fd3f4',
-    physics: { default: 'arcade', arcade: { gravity: { y: 900 } } },
     scene: { create: create, update: update }
   };
 
   function create() {
-    score = 0;
-    waveX = -120;
-    over = false;
-    crests = [];
+    S = { dist: 0, vy: 0, py: 300, grounded: false, gap: 150,
+          over: false, t: 0, flipping: false, flipAngle: 0, bonus: 0, score: 0 };
 
-    water = this.add.rectangle(200, 520, 400, 160, 0x1e6fb8);
-    this.physics.add.existing(water, true);
-
-    // The chasing wave, behind the penguin
-    wave = this.add.rectangle(waveX, 470, 140, 260, 0x4fb3d9);
-
-    penguin = this.add.rectangle(100, 400, 30, 40, 0x222222);
-    this.physics.add.existing(penguin);
-    penguin.body.setCollideWorldBounds(true);
-    this.physics.add.collider(penguin, water);
-
-    for (let i = 0; i < 8; i++) {
-      crests.push(this.add.rectangle(i * 60, 445, 30, 6, 0xffffff));
+    // Sky gradient
+    const sky = this.add.graphics();
+    for (let i = 0; i < 50; i++) {
+      sky.fillStyle(lerpColor(0x5fbcf0, 0xe3f6ff, i / 49), 1);
+      sky.fillRect(0, i * 12, W, 12);
     }
+    this.add.circle(320, 90, 58, 0xfff1a8, 0.25);
+    this.add.circle(320, 90, 40, 0xfff1a8, 1);
 
-    scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '24px', color: '#ffffff' });
+    clouds = [[70, 110, 100], [230, 170, 120], [355, 240, 80]].map(([x, y, w]) =>
+      this.add.ellipse(x, y, w, w * 0.32, 0xffffff, 0.9));
 
+    waveG = this.add.graphics();    // chasing wave (behind)
+    waterG = this.add.graphics();   // sea (front)
+    penguinG = this.add.graphics(); // penguin + board (on top)
+
+    scoreText = this.add.text(16, 14, 'Score: 0',
+      { fontFamily: 'monospace', fontSize: '22px', color: '#ffffff' });
+    this.add.text(16, 46, 'Tap to jump, tap in the air to backflip',
+      { fontSize: '13px', color: '#ffffff' }).setAlpha(0.9);
+
+    const scene = this;
     this.input.on('pointerdown', () => {
-      if (over) {
-        this.scene.restart();
-        return;
-      }
-      if (penguin.body.touching.down) {
-        penguin.body.setVelocityY(-450);
+      if (S.over) { scene.scene.restart(); return; }
+      if (S.grounded) {
+        S.vy = -0.55;                 // jump
+        S.grounded = false;
+      } else if (!S.flipping) {
+        S.flipping = true;            // backflip in the air
+        S.flipAngle = 0;
       }
     });
   }
 
   function update(time, delta) {
-    if (over) return;
+    if (S.over) return;
+    S.t += delta;
 
-    // Move the wave forward toward the penguin
-    waveX += 0.04 * delta;
-    wave.x = waveX;
+    // The world scrolls and speeds up gradually
+    const speed = Math.min(0.2 + S.dist * 0.00002, 0.45);
+    S.dist += speed * delta;
+    S.score = Math.floor(S.dist / 10) + S.bonus;
+    scoreText.setText('Score: ' + S.score);
 
-    // The wave catches the penguin: game over
-    if (wave.x + 70 > penguin.x - 15) {
-      over = true;
-      this.physics.pause();
-      this.add.text(200, 280, 'Wiped out!', { fontSize: '32px', color: '#ffffff' }).setOrigin(0.5);
-      this.add.text(200, 320, 'Tap to restart', { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5);
+    clouds.forEach(c => { c.x -= 0.03 * delta; if (c.x < -60) c.x = 460; });
+
+    // Penguin physics
+    const px = S.dist + PX;
+    const landY = surfaceAt(px) - 22;
+    const wasAir = !S.grounded;
+    S.vy += 0.0014 * delta;
+    S.py += S.vy * delta;
+    if (S.vy >= 0 && S.py >= landY - 14) {
+      S.py = landY; S.vy = 0; S.grounded = true;
+    } else {
+      S.grounded = false;
+    }
+
+    // Landing from a flip
+    if (S.grounded && wasAir && S.flipping) {
+      if (S.flipAngle >= Math.PI * 1.8) {
+        S.bonus += 100;
+        popText(this, 'Backflip! +100');
+      }
+      S.flipping = false;
+      S.flipAngle = 0;
+    }
+    if (S.flipping && !S.grounded) S.flipAngle += 0.012 * delta;
+
+    // The wave: gains on you in the air, falls back while you surf
+    if (S.t > 3000) {
+      S.gap += S.grounded ? 0.01 * delta : -0.025 * delta;
+    }
+    S.gap = Math.max(0, Math.min(180, S.gap));
+    const waveX = PX - S.gap;
+
+    if (S.t > 3000 && S.gap <= 60) {
+      gameOver(this);
       return;
     }
 
-    crests.forEach(c => {
-      c.x -= 0.2 * delta;
-      if (c.x < -30) c.x = 430;
-    });
-
-    if (penguin.body.touching.down) {
-      score += delta / 100;
-      scoreText.setText('Score: ' + Math.floor(score));
-    }
+    drawWave(waveX);
+    drawWater(S.dist);
+    drawPenguin(px);
   }
 
-  new Phaser.Game(config);
-</script>
-</body>
-</html>
+  function drawWave(b) {
+    waveG.clear();
+    waveG.fillStyle(0x1f8fb8, 1);
+    waveG.fillPoints([
+      { x: b - 260, y: 560 }, { x: b - 150, y: 430 }, { x: b - 70, y: 280 },
+      { x: b - 10, y: 140 }, { x: b + 30, y: 118 }, { x: b + 70, y: 150 },
+      { x: b + 48, y: 215 }, { x: b + 12, y: 262 }, { x: b + 32, y: 340 },
+      { x: b + 62, y: 430 }, { x: b + 70, y: 560 }
+    ], true);
+    waveG.fillStyle(0x7fe0f0, 0.55);
+    waveG.fillPoints([
+      { x: b - 150, y: 520 }, { x: b - 80, y: 340 }, { x: b - 25, y: 220 },
+      { x: b + 6, y: 170 }, { x: b + 22, y: 178 }, { x: b + 10, y: 248 },
+      { x: b - 8, y: 320 }, { x: b + 12, y: 420 }, { x: b + 20, y: 520 }
+    ], true);
+    waveG.lineStyle(4, 0xffffff, 0.95);
+    waveG.beginPath();
+    waveG.moveTo(b - 12, 142);
+    waveG.lineTo(b + 30, 118);
+    waveG.lineTo(b + 70, 150);
+    waveG.strokePath();
+  }
+
+  function drawWater(dist) {
+    waterG.clear();
+    const layer = (off) => {
+      const pts = [];
+      for (let x = 0; x <= W; x += 8) pts.push({ x: x, y: surfaceAt(dist + x) + off });
+      pts.push({ x: W, y: H }, { x: 0, y: H });
+      return pts;
+    };
+    waterG.fillStyle(0x1e6fb8, 1);
+    waterG.fillPoints(layer(0), true);
+    waterG.fillStyle(0x2b8bd6, 0.6);
+    waterG.fillPoints(layer(22), true);
+
+    waterG.lineStyle(3, 0xffffff, 0.9);
+    waterG.beginPath();
+    for (let x = 0; x <= W; x += 8) {
+      const y = surfaceAt(dist + x);
+      if (x === 0) waterG.moveTo(x, y); else waterG.lineTo(x, y);
+    }
+    waterG.strokePath();
+  }
+
+  function drawPenguin(px) {
+    const slope = surfaceAt(px + 12) - surfaceAt(px - 12);
+    let angle = S.grounded
+      ? Math.atan2(slope, 24)
+      : Math.max(-0.6, Math.min(0.9, S.vy * 0.9));
+    if (S.flipping) angle -= S.flipAngle;
+
+    penguinG.clear();
+    penguinG.setPosition(PX, S.py);
+    penguinG.setRotation(angle);
+
+    // Board
+    penguinG.fillStyle(0xff7a3d, 1); penguinG.fillEllipse(0, 24, 96, 14);
+    penguinG.fillStyle(0xffd27a, 1); penguinG.fillEllipse(0, 24, 64, 4);
+    // Body and wing
+    penguinG.fillStyle(0x23395d, 1); penguinG.fillEllipse(0, 0, 36, 46);
+    penguinG.fillStyle(0x1b2a47, 1); penguinG.fillEllipse(-16, 2, 10, 22);
+    // Belly
+    penguinG.fillStyle(0xf5f8fc, 1); penguinG.fillEllipse(2, 6, 22, 30);
+    // Head and pink crest
+    penguinG.fillStyle(0x23395d, 1); penguinG.fillCircle(3, -24, 15);
+    penguinG.fillStyle(0xf26d8a, 1);
+    penguinG.fillTriangle(-6, -34, -20, -50, -2, -40);
+    penguinG.fillTriangle(-2, -38, 4, -54, 10, -36);
+    // Eyes
+    penguinG.fillStyle(0xffffff, 1);
+    penguinG.fillCircle(-1, -25, 5); penguinG.fillCircle(9, -25, 5);
+    penguinG.fillStyle(0x111111, 1);
+    penguinG.fillCircle(0, -24, 2.5); penguinG.fillCircle(10, -24, 2.5);
+    // Beak
+    penguinG.fillStyle(0xffa23a, 1);
+    penguinG.fillTriangle(12, -20, 26, -15, 12, -11);
+    // Teal scarf
+    penguinG.fillStyle(0x2ec4b6, 1);
+    penguinG.fillEllipse(0, -9, 34, 8);
+  }
+
+  function gameOver(scene) {
+    S.over = true;
+    scene.add.rectangle(200, 300, W, H, 0x000000, 0.35);
+    scene.add.text(200, 270, 'Wiped out!', { fontSize: '34px', color: '#ffffff' }).setOrigin(0.5);
+    scene.add.text(200, 315, 'Score: ' + S.score, { fontSize: '22px', color: '#ffffff
