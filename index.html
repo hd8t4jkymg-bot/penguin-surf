@@ -6,7 +6,8 @@
 </head>
 <body style="margin:0;">
 <script>
-  let penguin, water, crests = [], score = 0, scoreText;
+  let penguin, water, wave, crests = [], score = 0, scoreText;
+  let waveX = -120, over = false;
 
   const config = {
     type: Phaser.AUTO,
@@ -18,25 +19,33 @@
   };
 
   function create() {
-    // The water: a solid block the penguin can land on
+    score = 0;
+    waveX = -120;
+    over = false;
+    crests = [];
+
     water = this.add.rectangle(200, 520, 400, 160, 0x1e6fb8);
     this.physics.add.existing(water, true);
 
-    // The penguin: a simple dark block for now
+    // The chasing wave, behind the penguin
+    wave = this.add.rectangle(waveX, 470, 140, 260, 0x4fb3d9);
+
     penguin = this.add.rectangle(100, 400, 30, 40, 0x222222);
     this.physics.add.existing(penguin);
     penguin.body.setCollideWorldBounds(true);
     this.physics.add.collider(penguin, water);
 
-    // White crests that move left to show forward motion
     for (let i = 0; i < 8; i++) {
       crests.push(this.add.rectangle(i * 60, 445, 30, 6, 0xffffff));
     }
 
     scoreText = this.add.text(16, 16, 'Score: 0', { fontSize: '24px', color: '#ffffff' });
 
-    // Tap anywhere to jump, only when standing on the water
     this.input.on('pointerdown', () => {
+      if (over) {
+        this.scene.restart();
+        return;
+      }
       if (penguin.body.touching.down) {
         penguin.body.setVelocityY(-450);
       }
@@ -44,13 +53,26 @@
   }
 
   function update(time, delta) {
-    // Move crests left and wrap them around
+    if (over) return;
+
+    // Move the wave forward toward the penguin
+    waveX += 0.04 * delta;
+    wave.x = waveX;
+
+    // The wave catches the penguin: game over
+    if (wave.x + 70 > penguin.x - 15) {
+      over = true;
+      this.physics.pause();
+      this.add.text(200, 280, 'Wiped out!', { fontSize: '32px', color: '#ffffff' }).setOrigin(0.5);
+      this.add.text(200, 320, 'Tap to restart', { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5);
+      return;
+    }
+
     crests.forEach(c => {
       c.x -= 0.2 * delta;
       if (c.x < -30) c.x = 430;
     });
 
-    // Score goes up while the penguin is on the water
     if (penguin.body.touching.down) {
       score += delta / 100;
       scoreText.setText('Score: ' + Math.floor(score));
